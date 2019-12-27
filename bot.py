@@ -8,12 +8,13 @@ import traceback
 import threading
 import tempfile
 import subprocess
+import urllib2
 
 with open('config.json') as f:
     config = json.load(f)
 
 # SLACK_BOT_TOKEN = os.environ['SLACK_BOT_TOKEN'] or config['SLACK_BOT_TOKEN']
-SLACK_BOT_TOKEN = "xoxb-13984615488-888062954951-2FlEloGRCBUgWWKbdmVYTfMu"
+SLACK_BOT_TOKEN = ""
 
 # instantiate Slack client
 slack_client = SlackClient(SLACK_BOT_TOKEN)
@@ -105,8 +106,11 @@ class Commands:
 
         Commands.log_files[str(proc.pid)] = f
         command = ' '.join(args)
+        # Send a gif for togepi
+        url = "http://api.giphy.com/v1/gifs/random?api_key=dc6zaTOxFJmzC&tag=togepi"
+        api = json.loads(urllib2.urlopen(url).read())
+        reply(api['data']['url'])
         reply('Running on {}'.format(proc.pid))
-        # reply('/giphy togepi')
         proc.communicate(command.encode())
         fl = f.tell()
         f.seek(0)
@@ -356,7 +360,7 @@ def gen_stop(db_type, user_id):
     return "docker stop %s_%s" % (db_type, user_id)
 
 if __name__ == "__main__":
-    # while True:
+    while True:
         try:
             run_loop()
         except KeyboardInterrupt:
@@ -367,3 +371,7 @@ if __name__ == "__main__":
             traceback.print_exc()
             time.sleep(10)
             pass
+
+    # g = giphypop.Giphy()
+    # results = [x for x in g.search('togepi')]
+    # print results[1]
