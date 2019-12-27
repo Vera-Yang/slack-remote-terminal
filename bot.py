@@ -12,7 +12,8 @@ import subprocess
 with open('config.json') as f:
     config = json.load(f)
 
-SLACK_BOT_TOKEN = os.environ['SLACK_BOT_TOKEN'] or config['SLACK_BOT_TOKEN']
+# SLACK_BOT_TOKEN = os.environ['SLACK_BOT_TOKEN'] or config['SLACK_BOT_TOKEN']
+SLACK_BOT_TOKEN = "xoxb-13984615488-888062954951-2FlEloGRCBUgWWKbdmVYTfMu"
 
 # instantiate Slack client
 slack_client = SlackClient(SLACK_BOT_TOKEN)
@@ -32,7 +33,6 @@ def ignore_exception(ignore_exception=Exception, default_val=None):
                 return default_val
 
         return _dec
-
     return dec
 
 
@@ -40,7 +40,22 @@ class Commands:
     @staticmethod
     def help(args, reply, api_call, event):
         """
-        list all commands and print help
+        Usage:
+            {Database} {Operations}
+        Example: 
+            Deploy PostgreSQL
+        Support Database:
+            PostgreSQL
+            MySQL 8
+            MySQL 5
+            SQL Server 2019
+            SQL Server 2017
+            DB2
+        Support Operations:
+            Deploy
+            Destroy
+            Start
+            Stop
         """
         reply('\n'.join(["`{}`\n{}".format(name, m.__doc__)
                          for name, m in inspect.getmembers(Commands, predicate=inspect.isfunction)]),
@@ -90,7 +105,8 @@ class Commands:
 
         Commands.log_files[str(proc.pid)] = f
         command = ' '.join(args)
-        reply('Runing on {}'.format(proc.pid))
+        reply('Running on {}'.format(proc.pid))
+        # reply('/giphy togepi')
         proc.communicate(command.encode())
         fl = f.tell()
         f.seek(0)
@@ -103,9 +119,11 @@ class Commands:
                      filetype='txt',
                      title=command,
                      reply_broadcast=True)
-
         f.close()
         del Commands.log_files[str(proc.pid)]
+        if proc.returncode == 0 and args[0] == "docker" and args[1] == "run":
+            reply_info = generate_reply(command)
+            reply(reply_info, "Deploy Success", reply_broadcast=True)
         title = '{} exited with: {}'.format(proc.pid, proc.returncode)
         reply(title, reply_broadcast=fl >= config['MAX_TEXT_SIZE'])
 
@@ -147,6 +165,40 @@ class Commands:
                              reply_broadcast=True)
         else:
             reply('can\'t find process id {}', "Error", reply_broadcast=True)
+
+def generate_reply(command):
+    db_type, port = get_db_type(command)
+    reply = '''
+    Deploy %s successfully.
+    Connection info:
+        Host/IP: 10.197.116.46
+        Port: %s
+        User: tpch
+        Password: mstr123#
+        Database: tpch
+    ''' % (db_type, port)
+    print reply
+    return reply
+
+def get_db_type(command):
+    image_name = re.findall(r"--name (.+?)_", command)
+    db_type = {
+        "postgres": "Postgre SQL",
+        "mysql5": "MySQL 5",
+        "mysql8": "MySQL 8",
+        "sqlserver2017": "SQL Server 2017",
+        "sqlserver2019": "SQL Server 2019"
+    }
+    default_port = {
+        "postgres": "5432",
+        "mysql5": "3306",
+        "mysql8": "3307",
+        "sqlserver2017": "1433",
+        "sqlserver2019": "1434"
+    }
+    db_name = image_name[0]
+    print db_type[db_name], default_port[db_name]
+    return db_type[db_name], default_port[db_name]
 
 
 def parse_bot_commands(slack_events, bot_id, ims):
@@ -204,7 +256,7 @@ def handle_command(command, event):
         elif 'chat.postMessage' in args:
             kwargs['channel'] = channel
         kwargs['thread_ts'] = event['ts']
-
+        # print args, kwargs
         j = slack_client.api_call(*args, **kwargs)
         if 'ok' not in j or not j['ok']:
             print('Method: {}\n, args:{}\n response: {}'.format(args, kwargs, json.dumps(j, indent=2)))
@@ -260,14 +312,51 @@ def run_loop():
         while True:
             command, event = parse_bot_commands(slack_client.rtm_read(), bot_id, ims)
             if command is not None:
-                handle_command(command, event)
+                user_id = event["user"].lower()
+                parsed_command = parse_command(command, user_id)
+                handle_command(parsed_command, event)                
             time.sleep(RTM_READ_DELAY)
     else:
         print("Connection failed. Exception traceback printed above.")
 
+def parse_command(command, user_id):
+    subs = command.split(' ')
+    print(subs)
+    operation = subs[0].upper()
+    if operation in ["DEPLOY", "DESTROY", "START", "STOP"]:
+        parsed_command = {
+            "DEPLOY": gen_deploy(subs[1], user_id),
+            "DESTROY": gen_destroy(subs[1], user_id),
+            "START": gen_start(subs[1], user_id),
+            "STOP": gen_stop(subs[1], user_id)
+        }
+        return parsed_command[operation]
+    else:
+        return command
+
+def gen_deploy(db_type, user_id):
+    deploy_cmd = {
+        "POSTGRESQL": "docker run --name postgres_%s -p 5432:5432 -d postgres:latest" % user_id,
+        "MYSQL": "docker run --name mysql_%s -p 3307:3306 -e MYSQL_ROOT_PASSWORD=mstr123# -d mysql:8" % user_id,
+        "MYSQL8": "docker run --name mysql8_%s -p 3307:3306 -e MYSQL_ROOT_PASSWORD=mstr123# -d mysql:8" % user_id,
+        "MYSQL5": "docker run --name mysql5_%s -p 3306:3306 -e MYSQL_ROOT_PASSWORD=mstr123# -d mysql:5" % user_id,
+        "SQLSERVER2019": "docker run --name sqlserver2019_%s -e 'ACCEPT_EULA=Y' -e 'SA_PASSWORD=mstr123#' -p 1434:1433 -d mcr.microsoft.com/mssql/server:2019-latest" % user_id,
+        "SQLSERVER2017": "docker run --name sqlserver2017_%s -e 'ACCEPT_EULA=Y' -e 'SA_PASSWORD=mstr123#' -p 1433:1433 -d mcr.microsoft.com/mssql/server:2017-latest" % user_id
+    }
+    print "Deploy command:", deploy_cmd[db_type.upper()]
+    return deploy_cmd[db_type.upper()]
+
+def gen_destroy(db_type, user_id):
+    return "docker rm -f %s_%s" % (db_type, user_id)
+
+def gen_start(db_type, user_id):
+    return "docker start %s_%s" % (db_type, user_id)
+
+def gen_stop(db_type, user_id):
+    return "docker stop %s_%s" % (db_type, user_id)
 
 if __name__ == "__main__":
-    while True:
+    # while True:
         try:
             run_loop()
         except KeyboardInterrupt:
