@@ -106,6 +106,7 @@ class Commands:
 
         Commands.log_files[str(proc.pid)] = f
         command = ' '.join(args)
+        print "Execute command: ", command
         # Send a gif for togepi
         url = "http://api.giphy.com/v1/gifs/random?api_key=dc6zaTOxFJmzC&tag=togepi"
         api = json.loads(urllib2.urlopen(url).read())
@@ -187,16 +188,18 @@ def generate_reply(command):
 def get_db_type(command):
     image_name = re.findall(r"--name (.+?)_", command)
     db_type = {
-        "postgres": "Postgre SQL",
+        "postgresql": "Postgre SQL",
         "mysql5": "MySQL 5",
         "mysql8": "MySQL 8",
+        "mysql": "MySQL 8",
         "sqlserver2017": "SQL Server 2017",
         "sqlserver2019": "SQL Server 2019"
     }
     default_port = {
-        "postgres": "5432",
+        "postgresql": "5432",
         "mysql5": "3306",
         "mysql8": "3307",
+        "mysql": "3307",
         "sqlserver2017": "1433",
         "sqlserver2019": "1434"
     }
@@ -260,7 +263,6 @@ def handle_command(command, event):
         elif 'chat.postMessage' in args:
             kwargs['channel'] = channel
         kwargs['thread_ts'] = event['ts']
-        # print args, kwargs
         j = slack_client.api_call(*args, **kwargs)
         if 'ok' not in j or not j['ok']:
             print('Method: {}\n, args:{}\n response: {}'.format(args, kwargs, json.dumps(j, indent=2)))
@@ -325,14 +327,13 @@ def run_loop():
 
 def parse_command(command, user_id):
     subs = command.split(' ')
-    print(subs)
     operation = subs[0].upper()
     if operation in ["DEPLOY", "DESTROY", "START", "STOP"]:
         parsed_command = {
-            "DEPLOY": gen_deploy(subs[1], user_id),
-            "DESTROY": gen_destroy(subs[1], user_id),
-            "START": gen_start(subs[1], user_id),
-            "STOP": gen_stop(subs[1], user_id)
+            "DEPLOY": gen_deploy(subs[1].lower(), user_id),
+            "DESTROY": gen_destroy(subs[1].lower(), user_id),
+            "START": gen_start(subs[1].lower(), user_id),
+            "STOP": gen_stop(subs[1].lower(), user_id)
         }
         return parsed_command[operation]
     else:
@@ -340,7 +341,7 @@ def parse_command(command, user_id):
 
 def gen_deploy(db_type, user_id):
     deploy_cmd = {
-        "POSTGRESQL": "docker run --name postgres_%s -p 5432:5432 -d postgres:latest" % user_id,
+        "POSTGRESQL": "docker run --name postgresql_%s -e POSTGRES_USER=tpch -e POSTGRES_PASSWORD=mstr123# -e POSTGRES_DB=tpch -p 5432:5432 -d postgres:latest" % user_id,
         "MYSQL": "docker run --name mysql_%s -p 3307:3306 -e MYSQL_ROOT_PASSWORD=mstr123# -d mysql:8" % user_id,
         "MYSQL8": "docker run --name mysql8_%s -p 3307:3306 -e MYSQL_ROOT_PASSWORD=mstr123# -d mysql:8" % user_id,
         "MYSQL5": "docker run --name mysql5_%s -p 3306:3306 -e MYSQL_ROOT_PASSWORD=mstr123# -d mysql:5" % user_id,
